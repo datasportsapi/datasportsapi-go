@@ -1,7 +1,7 @@
 # datasportsapi-go
 
 The Go client for [DataSportsAPI](https://datasportsapi.com), a real-time sports
-data API for 24 sports.
+data API for 25 sports.
 
 > **In development.** The Go module arrives with the 0.1 SDKs, generated from the
 > [OpenAPI description](https://github.com/datasportsapi/openapi) like the

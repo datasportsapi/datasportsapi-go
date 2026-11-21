@@ -21,5 +21,5 @@ a message and, on 429, `Retry-After`. Get a free key (1,000 requests a day, no
 card) at [datasportsapi.com/signup](https://datasportsapi.com/signup/), and read
 the [docs](https://datasportsapi.com/docs/).
 
-Questions: [hello@datasportsapi.com](mailto:hello@datasportsapi.com) or the [developer Discord](https://datasportsapi.com/discord).
+Questions: [hello@datasportsapi.com](mailto:hello@datasportsapi.com).
 © DataSportsAPI. MIT licensed.

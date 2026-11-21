@@ -22,4 +22,4 @@ card) at [datasportsapi.com/signup](https://datasportsapi.com/signup/), and read
 the [docs](https://datasportsapi.com/docs/).
 
 Questions: [hello@datasportsapi.com](mailto:hello@datasportsapi.com) or the [developer Discord](https://datasportsapi.com/discord).
-© Noventra Software Ltd. MIT licensed.
+© DataSportsAPI. MIT licensed.

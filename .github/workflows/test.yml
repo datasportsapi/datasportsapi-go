@@ -1,0 +1,40 @@
+# Tests the module on every push and pull request: vet, gofmt, the offline tests
+# (with the race detector) on the oldest and newest Go it supports, then a scan
+# for anything shaped like a key. The live smoke test (build tag "live") never
+# runs here: it needs a real key.
+name: Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.23", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Vet
+        run: go vet ./...
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test -race ./...
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Scan for secrets
+        run: node scan-secrets.mjs .

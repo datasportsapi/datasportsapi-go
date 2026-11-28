@@ -1548,15 +1548,6 @@ func _() {
 	_, _ = res, err
 }
 
-// tracking.players
-func _() {
-	ctx := context.Background()
-	client := datasportsapi.NewClient()
-	var id int64
-	res, err := client.Tracking.Players(ctx, id, &datasportsapi.TrackingPlayersParams{})
-	_, _ = res, err
-}
-
 // exports.create
 func _() {
 	ctx := context.Background()

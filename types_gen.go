@@ -16,9 +16,11 @@ type Fixture struct {
 	Status Status `json:"status"`
 	// Kick-off time. Holds the scheduled start until the source logs the actual kick-off, which then takes its place (the live feed delivers it a few minutes after play begins). Identical across all endpoints and WebSocket deltas. Matches from before 1970 have one too (they read null until 2026-11-23).
 	StartTime *string `json:"startTime"`
+	// The moment the match finished according to the source's records. Stays null while the match is unfinished, and for a match whose finishing time the source never logged. A match spread over several days, such as a cricket Test, shows up in /v2/fixtures?date= for each day between startTime and endTime. Fixtures saved before 2026-11-26 read null until they are fetched again. Available since 2026-11-26.
+	EndTime *string `json:"endTime"`
 	// Competition the fixture belongs to. It is null if the source places the fixture in a competition that has no matching league (observed in minor regional football, e.g. South Africa’s National Second Division on 2026-10-23); in that case season and round are null as well.
 	League *LeagueRef `json:"league"`
-	// Season the fixture is part of.
+	// The season the source places the fixture in. When a league runs a competition of its own within its season, those games sit in that competition's season: NBA Cup group games belong to "NBA Cup 2026" with its group tables, and the conference and division tables stay with the regular season. /v2/leagues/{id}/seasons lists both.
 	Season *Season `json:"season"`
 	// Round of the fixture, for competitions organised in rounds.
 	Round *Round `json:"round"`
@@ -128,10 +130,26 @@ type Fixture struct {
 	Awarded *bool `json:"awarded"`
 	// Sports played in sets or rounds: the length of every finished period (available since 2026-11-04). Null for sports the source does not time by period (football, basketball, …) and until the first period is over. Delivered live via WebSocket deltas.
 	Durations *Durations `json:"durations"`
-	// Becomes true when the source publishes lineups for the fixture, whether predicted or official (check `confirmed` on /v2/fixtures/{id}/lineups to tell them apart), and false if they are withdrawn. We set it the moment the source’s live feed announces lineups, or when a lineup we fetch contains players. Null means we have no information yet (no announcement observed, nothing fetched). WebSocket deltas carry it live — on fixture:{id} from before kick-off, and on the list channels once play starts. Available since 2026-11-04.
+	// Whether the source names this competition's visitors first, the "Away @ Home" style of the North American leagues (NFL, NBA, NCAA, NHL, AHL and some baseball leagues): true there, false where the home side comes first. Handy for ordering the two sides the way local fans read them; the tracker widget follows it. Fixtures saved before 2026-11-26 read null until they are fetched again. Available since 2026-11-26.
+	AwayFirst *bool `json:"awayFirst"`
+	// Sports with a running clock, such as football: the stoppage minutes the officials announced for each period, keyed as in ScoreSide.periods (period1 and period2 for the halves, extra1 / extra2 for the two halves of extra time). A period's figure stays here once it is over, whereas clock.injuryTimeMinutes only covers the period being played and turns null at a break, so the first half's added time can still be read at half-time and after the match. Null when nothing was announced, and on fixtures saved before 2026-11-26 until they are fetched again. WebSocket deltas carry the periods that change. Unit: minutes. Available since 2026-11-26.
+	AddedTime map[string]float64 `json:"addedTime"`
+	// Becomes true when the source publishes lineups for the fixture, whether predicted or official (check `confirmed` on /v2/fixtures/{id}/lineups to tell them apart), and false if they are withdrawn. We set it the moment the source’s live feed announces lineups, or when a lineup we fetch contains players. Null means we have no information yet (no announcement observed, nothing fetched). WebSocket deltas carry it live — on fixture:{id} from before kick-off, and on the list channels once play starts. After the final whistle the flag keeps the value it had during play, in REST and in every list (until 2026-11-26 it turned null there). Available since 2026-11-04.
 	LineupsAvailable *bool `json:"lineupsAvailable"`
 	// Becomes true when the official lineups are released (matching `confirmed` on /v2/fixtures/{id}/lineups); otherwise behaves like lineupsAvailable, with null meaning we have no information. Delivered live via WebSocket deltas. Available since 2026-11-04.
 	LineupsConfirmed *bool `json:"lineupsConfirmed"`
+	// Knockout stages: how many ties the round holds, which is how the source codes it: 1 for a final, 2 for semi-finals, 4 for quarter-finals, 8 for the last 16, 16 for the last 32. Null in league play and wherever the source leaves the round uncoded. Carried by every fixture endpoint and by WebSocket snapshots and deltas; null on fixtures saved before 2026-11-27 until they are read again. Available since 2026-11-27.
+	TiesInRound *int64 `json:"tiesInRound"`
+	// true when the source holds expected-goals figures for this match, which then appear in /v2/fixtures/{id}/statistics and on the shot map; null when it gives no answer either way. Carried by every fixture endpoint and by WebSocket snapshots and deltas; null on fixtures saved before 2026-11-27 until they are read again. Available since 2026-11-27.
+	XgAvailable *bool `json:"xgAvailable"`
+	// true when the source keeps a statistics line per player for this match, read through /v2/fixtures/{id}/lineups; null when it gives no answer either way. Carried by every fixture endpoint and by WebSocket snapshots and deltas; null on fixtures saved before 2026-11-27 until they are read again. Available since 2026-11-27.
+	PlayerStatisticsAvailable *bool `json:"playerStatisticsAvailable"`
+	// true when the source keeps a heatmap per player for this match; null when it gives no answer either way. Carried by every fixture endpoint and by WebSocket snapshots and deltas; null on fixtures saved before 2026-11-27 until they are read again. Available since 2026-11-27.
+	PlayerHeatmapAvailable *bool `json:"playerHeatmapAvailable"`
+	// During a live cricket innings, the batter the source marks as current, given as our player id. That mark moves back and forth between whoever faces the coming delivery and whoever faced the previous one, so treat it as a batter at the crease, not a guaranteed striker. Names and figures are on /v2/fixtures/{id}/scorecard (ScorecardInnings.currentBatter). Read from the fixture detail; the live feed does not push it. Null otherwise, in other sports, and on rows stored before 2026-11-27 until their next refresh. Since 2026-11-27.
+	CurrentBatterID *int64 `json:"currentBatterId"`
+	// During a live cricket innings, the bowler the source marks as current, given as our player id: whoever has the over under way or has just completed one. Null in the same cases as currentBatterId. Since 2026-11-27.
+	CurrentBowlerID *int64 `json:"currentBowlerId"`
 }
 
 // FixtureTier is one of the values listed below.
@@ -217,7 +235,7 @@ type ScoreSide struct {
 	Series *float64 `json:"series"`
 	// Tennis: score within the current game — "0" | "15" | "30" | "40" | "A", or a plain number ("0"–"N") during a tie-break. Darts: the points the side still has to score in the current leg ("501" when a leg starts). Null when play is neither in progress nor interrupted.
 	Point *string `json:"point"`
-	// Football: number of red cards this side has received, counting second yellows.
+	// Football: number of red cards this side has received, counting second yellows. Once the match is under way it starts at 0 rather than null, on REST and, since 2026-11-26, in WebSocket deltas as well.
 	RedCards *int64 `json:"redCards"`
 	// Cricket: each innings of this side, keyed inning1…N. Empty in other sports.
 	Innings map[string]CricketInnings `json:"innings"`
@@ -245,15 +263,15 @@ type CricketInnings struct {
 type Clock struct {
 	// Moment the clock for the current period was started.
 	PeriodStartedAt *string `json:"periodStartedAt"`
-	// Running clock: seconds already on the clock at the start of the period (2700 for the second half in football). Unit: seconds.
+	// Running clock: seconds already on the clock at the start of the period (2700 for the second half in football). Null at a break, when no period is being played. Unit: seconds.
 	PeriodOffsetSeconds *float64 `json:"periodOffsetSeconds"`
-	// Running clock: clock reading, in seconds, at which regulation time for the period runs out (2700 for the first half in football). Unit: seconds.
+	// Running clock: clock reading, in seconds, at which regulation time for the period runs out (2700 for the first half in football). Null at a break. Unit: seconds.
 	PeriodEndSeconds *float64 `json:"periodEndSeconds"`
-	// Running clock: upper bound on the added time the source’s display permits after periodEndSeconds. Unit: seconds.
+	// Running clock: upper bound on the added time the source’s display permits after periodEndSeconds. Null at a break. Unit: seconds.
 	MaxExtraSeconds *float64 `json:"maxExtraSeconds"`
-	// Stoppage time announced for the current period. Unit: minutes.
+	// Stoppage time announced for the current period; null at a break. Fixture.addedTime keeps the announced minutes of every period. Unit: minutes.
 	InjuryTimeMinutes *float64 `json:"injuryTimeMinutes"`
-	// Stop clock: time played in seconds, valid at `playedAt`. Unit: seconds.
+	// Stop clock: time played in seconds, valid at `playedAt`. When the source's clock jumps forward by up to a minute (handball often runs 15–30 s ahead after a quiet spell), the new reading is used at once since 2026-11-26. A bigger jump, or a reading more than a minute behind (a source that falls back to the previous period at a break), only counts once the next reading agrees, so the clock does not leap about. Unit: seconds.
 	PlayedSeconds *float64 `json:"playedSeconds"`
 	// Timestamp at which `playedSeconds` was captured.
 	PlayedAt *string `json:"playedAt"`
@@ -343,7 +361,7 @@ type FixturePatch struct {
 	HomeScore *ScoreSidePatch `json:"homeScore,omitempty"`
 	// Modified fields of the away ScoreSide.
 	AwayScore *ScoreSidePatch `json:"awayScore,omitempty"`
-	// Since 2026-11-14 the whole Clock (every field, null where there is no value) is sent whenever any part of it changes. Deep-merging it gives the same result as before, and a client that held no clock now receives a complete one. A null value signals the match has ended; discard the clock.
+	// Since 2026-11-14 the whole Clock (every field, null where there is no value) is sent whenever any part of it changes. Since 2026-11-26 periodCount, periodLengthSeconds and overtimeLengthSeconds are filled in from the fixture's REST data when the live row lacks them, instead of arriving as null; when that data is at the same status, the period offset, end and added-time fields are filled the same way. Deep-merging it gives the same result as before, and a client that held no clock now receives a complete one. Since 2026-11-26 a delta sent during a break (half-time, an intermission) has periodOffsetSeconds, periodEndSeconds, maxExtraSeconds and injuryTimeMinutes set to null, as REST always had them; until then the WebSocket copy could hold on to the finished period's values. A null value signals the match has ended; discard the clock.
 	Clock *FixturePatchClock `json:"clock,omitempty"`
 	// Deprecated; carries the same value as `serving`.
 	FirstToServe *Side `json:"firstToServe,omitempty"`
@@ -365,6 +383,8 @@ type FixturePatch struct {
 	VarCheck *VarCheck `json:"varCheck,omitempty"`
 	// A newly finished period with its length in seconds (keyed as in ScoreSide.periods; null means the source removed it, so delete it), together with the updated total. Merge it the same way as a score map.
 	Durations *FixturePatchDurations `json:"durations,omitempty"`
+	// Only the periods whose announced added time changed, in minutes; a null value means the source took that figure back, so remove the period. Merge it as you would a score map. Since 2026-11-26.
+	AddedTime map[string]*float64 `json:"addedTime,omitempty"`
 	// MMA / boxing: how, in which round and when the fight finished, sent as a whole object once the source has it. Expect it in a delta after the one that ends the fight, since the source releases it ~20–60 s after the winner is known.
 	FightResult *FightResult `json:"fightResult,omitempty"`
 	// Tennis doubles and padel: the players of the home pair, always sent as the complete list once anything in it changes. The final result can complete a pair or swap its order, and the delta carrying that result includes them, so merged deltas match a fresh REST read. Available since 2026-11-25.
@@ -443,7 +463,7 @@ type ScoreSidePatch struct {
 	Series *float64 `json:"series,omitempty"`
 	// Tennis: score within the current game — "0" | "15" | "30" | "40" | "A", or a plain number ("0"–"N") during a tie-break. Darts: the points the side still has to score in the current leg ("501" when a leg starts). Null when play is neither in progress nor interrupted.
 	Point *string `json:"point,omitempty"`
-	// Football: number of red cards this side has received, counting second yellows.
+	// Football: number of red cards this side has received, counting second yellows. Once the match is under way it starts at 0 rather than null, on REST and, since 2026-11-26, in WebSocket deltas as well.
 	RedCards *int64 `json:"redCards,omitempty"`
 	// Baseball: hit total, i.e. the H in the R/H/E line.
 	Hits *int64 `json:"hits,omitempty"`
@@ -556,6 +576,8 @@ type Person struct {
 	PrizeMoneyCareer *Money `json:"prizeMoneyCareer"`
 	// MMA: the fighter’s style in the source’s own word ("mma", …); null in other sports and when it is not given. Available since 2026-11-23.
 	FightingStyle *string `json:"fightingStyle"`
+	// The source's junior marker: true for a competitor it lists as under age, false when it states the opposite, null when it is silent. Available since 2026-11-27.
+	Underage *bool `json:"underage"`
 }
 
 // A league or competition. /v2/leagues/{id} and every league list return this same shape.
@@ -838,6 +860,8 @@ type SquadPlayer struct {
 	PreviousTeam *TeamRef `json:"previousTeam"`
 	// Date of the player’s arrival at this team (a signing, a trade, a call-up), where the source records it; null otherwise. Available since 2026-11-23.
 	JoinedOn *string `json:"joinedOn"`
+	// The player’s own team when it differs from the squad you asked for: on a national squad, the club or domestic side he plays for (for cricket, a state or county side). It stays null when you read a club’s squad, when no team is given, and on squads stored before 2026-11-27 until their next refresh. Since 2026-11-27.
+	Club *TeamRef `json:"club"`
 }
 
 // SquadPlayerGender is one of the values listed below.
@@ -998,7 +1022,7 @@ type LineupPlayer struct {
 	Star *int64 `json:"star"`
 	// Baseball: the player’s slot in the batting order.
 	BattingOrder *int64 `json:"battingOrder"`
-	// The player’s match statistics, using sport-specific camelCase keys from the same vocabulary as team statistics: whenever a key measures the same thing as a team StatItem, it shares that key (football minutesPlayed, passes, accuratePasses, shotsOnGoal, expectedGoals …; basketball points, fieldGoalsMade, fieldGoalsAttempted, secondsPlayed …; ice hockey goals, shotsOnGoal, penalties, plusMinus, savePercentage …). On NBA games played after 2026-11-22 21:00 UTC, a live box score adds `pointsFastBreak`, `pointsInPaint`, `pointsFromTurnovers` and `foulsDrawn` for the players it lists; other leagues lack them. In Bundesliga, 2. Bundesliga and MLS matches from 2026-11-23 on: `injuries` and `cornerKicks` (corners he took), plus a goalkeeper’s `shotsFaced` (the opposition’s attempts during his time in goal) and `cleanSheet` (1 or 0, judged on the minutes he played; it reads 0 until the match is over), from a live box score supplied by a different provider, for the players it lists. The football penalty keys (penaltyWon, penaltyConceded, penaltyMiss, penaltyFaced, penaltySave) are listed in the data dictionary. Every …Percentage key is a share from 0 to 100 — ice-hockey save percentages too (94.1 rather than 0.941). Values are in seconds where the key name says so. Null if the player has no statistics.
+	// The player’s match statistics, using sport-specific camelCase keys from the same vocabulary as team statistics: whenever a key measures the same thing as a team StatItem, it shares that key (football minutesPlayed, passes, accuratePasses, shotsOnGoal, expectedGoals …; basketball points, fieldGoalsMade, fieldGoalsAttempted, secondsPlayed …; ice hockey goals, shotsOnGoal, penalties, plusMinus, savePercentage …). On NBA games played after 2026-11-22 21:00 UTC, a live box score adds `pointsFastBreak`, `pointsInPaint`, `pointsFromTurnovers` and `foulsDrawn` for the players it lists; other leagues lack them. In football matches the live tracker follows (MLS and the Champions League among them), from 2026-11-23 on: `injuries` and `cornerKicks` (corners he took), plus a goalkeeper’s `shotsFaced` (the opposition’s attempts during his time in goal) and `cleanSheet` (1 or 0, judged on the minutes he played; it reads 0 until the match is over), from a live box score supplied by a different provider, for the players it lists. The football penalty keys (penaltyWon, penaltyConceded, penaltyMiss, penaltyFaced, penaltySave) are listed in the data dictionary. Every …Percentage key is a share from 0 to 100 — ice-hockey save percentages too (94.1 rather than 0.941). Values are in seconds where the key name says so. Null if the player has no statistics.
 	Statistics map[string]float64 `json:"statistics"`
 	// Baseball: each part the player took in the game, in the order he took it. A starter switched from left to centre field reads [leftField, centerField]; a substitute who batted for a team-mate and then stayed on at first base reads [pinchHitter, firstBase]. An empty list outside baseball, or when the source has no record of it. Available since 2026-11-23.
 	BaseballRoles []BaseballRole `json:"baseballRoles"`
@@ -1061,7 +1085,7 @@ type StatGroup struct {
 
 // A single match statistic with values for both teams.
 type StatItem struct {
-	// Stable camelCase identifier. A given key always denotes the same quantity, across all sports and in lineup player statistics, though it may show up in two groups. Ratio keys are named after the successes their `value` counts (`aerialDuelsWon`, `fieldGoalsMade`, `accurateCrosses`, `firstServesIn`, `powerPlayConversion`) and never end in `…Percentage`; that suffix is reserved for keys whose `value` is already a 0–100 share (`duelsWonPercentage`, `corsiPercentage`). Note that `blocks` counts attempts this side blocked, while `shotsBlocked` counts this side’s own shots that got blocked. On NBA games played after 2026-11-22 21:00 UTC, a live box score adds `pointsFastBreak`, `pointsInPaint`, `pointsFromTurnovers`, `foulsDrawn` and `foulsToGive` (fouls a side has left in the period until the other team shoots bonus free throws), in the `all` period only; other leagues lack them. In Bundesliga, 2. Bundesliga and MLS matches from 2026-11-23 on, a live box score from a different provider adds `injuries` (group matchOverview, `all` period). The data dictionary lists every key per sport.
+	// Stable camelCase identifier. A given key always denotes the same quantity, across all sports and in lineup player statistics, though it may show up in two groups. Ratio keys are named after the successes their `value` counts (`aerialDuelsWon`, `fieldGoalsMade`, `accurateCrosses`, `firstServesIn`, `powerPlayConversion`) and never end in `…Percentage`; that suffix is reserved for keys whose `value` is already a 0–100 share (`duelsWonPercentage`, `corsiPercentage`). Note that `blocks` counts attempts this side blocked, while `shotsBlocked` counts this side’s own shots that got blocked. On NBA games played after 2026-11-22 21:00 UTC, a live box score adds `pointsFastBreak`, `pointsInPaint`, `pointsFromTurnovers`, `foulsDrawn` and `foulsToGive` (fouls a side has left in the period until the other team shoots bonus free throws), in the `all` period only; other leagues lack them. In football matches the live tracker follows (MLS and the Champions League among them), from 2026-11-23 on, a live box score from a different provider adds `injuries` (group matchOverview, `all` period). The data dictionary lists every key per sport.
 	Key string `json:"key"`
 	// English label as provided by the source.
 	Name *string `json:"name"`
@@ -1099,12 +1123,16 @@ type Incident struct {
 	AddedMinute *int64 `json:"addedMinute"`
 	// Game clock in seconds, if the source supplies it — present on all rows in ice hockey, basketball, handball and rugby, but only on period rows in football. Unit: seconds.
 	Second *int64 `json:"second"`
-	// Period in which the event took place. On period rows it is the period that just ended (ET → extra2, PEN → penalties, FT → period2 in football and period4 in basketball). On other rows it is the period bounded by the surrounding period rows, or the source’s own value when supplied; shoot-out kicks use penalties. Null only if it cannot be determined (no period row yet and the period length for the sport is unknown).
+	// Period in which the event took place. On period rows it is the period that just ended (ET → extra2, PEN → penalties, FT → period2 in football and period4 in basketball). On other rows it is the period bounded by the surrounding period rows, or the source’s own value when supplied; shoot-out kicks use penalties. A card shown to the bench takes the period its `benchMinute` falls in (since 2026-11-26). Null only if it cannot be determined (no period row yet and the period length for the sport is unknown).
 	Period *PeriodKey `json:"period"`
 	// Main player involved: the scorer, the booked or penalised player, the subject of a VAR check, or the shoot-out taker.
 	Player *PlayerRef `json:"player"`
-	// Name of the player; filled even when the source provides a name without a player record (as with some own goals).
+	// Name of the player; filled even when the source provides a name without a player record (as with some own goals). For a card given to a manager it is the manager's name.
 	PlayerName *string `json:"playerName"`
+	// Set when the incident concerns a manager (head coach) on the bench, such as a booking from the touchline: our id for that manager. Null on every other row. Available since 2026-11-26.
+	Manager *ManagerRef `json:"manager"`
+	// For an incident on the bench, which the match clock does not count (a manager's card): the minute of play it came in, in the source's count. `minute` is null on such rows, and `period` follows from this minute (a booking in the 63rd minute is in period2). Null otherwise. Available since 2026-11-26. Unit: minutes.
+	BenchMinute *int64 `json:"benchMinute"`
 	// Players credited with assists on the goal who have a player record, in order (up to two in ice hockey). An assister the source names without a record appears only in assistNames.
 	Assists []PlayerRef `json:"assists"`
 	// Every assist on the goal as a name, in order, including assisters the source names without a player record (frequent in futsal, where assists could stay empty). Incidents stored before 2026-11-24 read [] until they are refreshed. Available since 2026-11-24.
@@ -1817,7 +1845,7 @@ type MatchFormat struct {
 
 // Baseball only: the umpires working a game.
 type Umpires struct {
-	// Crew members in the source’s order, starting with home plate; empty if the source lists none and in other sports.
+	// Crew members in the source’s order, starting with home plate; empty if the source lists none and in other sports. Cricket keeps its officials on the fixture instead: Fixture.umpires and Fixture.tvUmpire, as plain names without position or experience.
 	Umpires []Umpire `json:"umpires"`
 }
 
@@ -2224,6 +2252,10 @@ type ScorecardInnings struct {
 	FallOfWickets []FallOfWicket `json:"fallOfWickets"`
 	// Each batting partnership in sequence.
 	Partnerships []Partnership `json:"partnerships"`
+	// On the innings now being played, the batter marked as current: whoever is about to face, or whoever faced the latest delivery (the partner at the other end is not given). Null for a finished or future innings and on copies stored before 2026-11-27. Since 2026-11-27.
+	CurrentBatter *PlayerRef `json:"currentBatter"`
+	// On the innings now being played, the bowler marked as current. Null in the same cases as currentBatter. Since 2026-11-27.
+	CurrentBowler *PlayerRef `json:"currentBowler"`
 }
 
 // A single entry on a batting card, listed in batting order.
@@ -2385,6 +2417,14 @@ type StandingsRow struct {
 	NoResults *int64 `json:"noResults"`
 	// Cricket only: net run rate, the usual tie-breaker: the runs a side scores per over less the runs it concedes per over. Null in other sports. Available since 2026-11-20.
 	NetRunRate *float64 `json:"netRunRate"`
+	// Averages tables only, the kind that decides relegation on points per game across several seasons (the source's “Promedios”): the points-per-game figure the table is ranked by, to three decimals. Such a table is never the season's main one; it comes as an extra group, so call GET /v2/leagues/{id}/standings with group=all and pick it out by name. Null in all other tables. Available since 2026-11-27.
+	PointsPerGame *float64 `json:"pointsPerGame"`
+	// Averages tables: the current season's points that go into the average. Null in all other tables. Available since 2026-11-27.
+	PointsThisSeason *float64 `json:"pointsThisSeason"`
+	// Averages tables: last season's points that go into the average; a club that played elsewhere that season scores 0 here, following the source. Null in all other tables. Available since 2026-11-27.
+	PointsPreviousSeason *float64 `json:"pointsPreviousSeason"`
+	// Averages tables: the points from two seasons back that go into the average, with the same 0 and null rules as pointsPreviousSeason. Available since 2026-11-27.
+	PointsTwoSeasonsAgo *float64 `json:"pointsTwoSeasonsAgo"`
 	// Up to five of the team’s latest results in the part of the competition this table covers (its group or stage, since 2026-11-23; the whole season where no single part covers the table), ordered oldest first so the newest comes last; a home / away table shows only home / away results. Null when our data source gives no form for this table — computed tables, rows stored earlier, or a read that failed.
 	Form []FormResult `json:"form"`
 }
@@ -2635,6 +2675,8 @@ type PlayerLeagueSeasons struct {
 	// League or competition reference — the same structure /v2/leagues/{id} and all league lists return.
 	League  LeagueRef                    `json:"league"`
 	Seasons []PlayerLeagueSeasonsSeasons `json:"seasons"`
+	// Where the source keeps one, the id of the league's all-time season. Use it as the `season` of /v2/players/{id}/statistics to read the player's career totals in this league; because those totals cover every season, a plan with a history window is refused with 403 history_not_in_plan. This id never appears in the league's own list of seasons. Null when the source has no all-time season. Available since 2026-11-27.
+	AllTimeSeasonID *int64 `json:"allTimeSeasonId"`
 }
 
 // PlayerLeagueSeasonsSeasons is a JSON object of the API.
@@ -2680,9 +2722,11 @@ type PlayerFixture struct {
 	Status Status `json:"status"`
 	// When the match starts: initially the planned time, swapped for the actual kick-off once our data source logs it (its live feed delivers this a few minutes after the start). Every endpoint and every WebSocket delta carries the same value.
 	StartTime *string `json:"startTime"`
+	// When the match finished, as the source logged it; null until then and when it logged no time. A cricket Test or other multi-day match is in the date lists for every day from startTime to this. Fixtures saved before 2026-11-26 read null until they are fetched again. Available since 2026-11-26.
+	EndTime *string `json:"endTime"`
 	// Competition the fixture belongs to. Null if our data source places the fixture in a competition without a matching league — seen on 2026-10-23 in minor regional football, e.g. South Africa’s National Second Division; in that case season and round are null as well.
 	League *LeagueRef `json:"league"`
-	// Season the fixture is part of.
+	// The season the source places the fixture in. When a league runs a competition of its own within its season, those games sit in that competition's season: NBA Cup group games belong to "NBA Cup 2026" with its group tables, and the conference and division tables stay with the regular season. /v2/leagues/{id}/seasons lists both.
 	Season *Season `json:"season"`
 	// Round of the fixture, for competitions organised in rounds.
 	Round *Round `json:"round"`
@@ -2792,10 +2836,26 @@ type PlayerFixture struct {
 	Awarded *bool `json:"awarded"`
 	// Sports played in sets or rounds: the length of every finished period (since 2026-11-04). Null for sports our data source does not time by period (football, basketball, …) and until the first period is over. Delivered live through WebSocket deltas.
 	Durations *Durations `json:"durations"`
-	// `true` once our data source has published lineups for the fixture, whether predicted or official (`confirmed` on /v2/fixtures/{id}/lineups tells you which); `false` if they were withdrawn. We set it the moment the source’s live feed announces lineups, or when a lineup we fetch contains players. Null means we have no information (no announcement observed, nothing fetched). WebSocket deltas carry it live — on fixture:{id} from before kick-off, and on the list channels once play starts. Available since 2026-11-04.
+	// true where the source lists the visitors first ("Away @ Home": NFL, NBA, NCAA, NHL, AHL and some baseball leagues), false where home leads. Null on fixtures saved before 2026-11-26 until they are fetched again. Available since 2026-11-26.
+	AwayFirst *bool `json:"awayFirst"`
+	// Running-clock sports such as football: the announced stoppage minutes per period, keyed like ScoreSide.periods (period1, period2, extra1, extra2), kept after each period ends (clock.injuryTimeMinutes covers only the period in play). Null when none was announced, and on fixtures saved before 2026-11-26 until they are fetched again. Unit: minutes. Available since 2026-11-26.
+	AddedTime map[string]float64 `json:"addedTime"`
+	// `true` once our data source has published lineups for the fixture, whether predicted or official (`confirmed` on /v2/fixtures/{id}/lineups tells you which); `false` if they were withdrawn. We set it the moment the source’s live feed announces lineups, or when a lineup we fetch contains players. Null means we have no information (no announcement observed, nothing fetched). WebSocket deltas carry it live — on fixture:{id} from before kick-off, and on the list channels once play starts. After the final whistle the flag keeps the value it had during play, in REST and in every list (until 2026-11-26 it turned null there). Available since 2026-11-04.
 	LineupsAvailable *bool `json:"lineupsAvailable"`
 	// `true` once official lineups have been released (`confirmed` on /v2/fixtures/{id}/lineups), set in the same way as lineupsAvailable; null means we have no information. Delivered live through WebSocket deltas. Available since 2026-11-04.
 	LineupsConfirmed *bool `json:"lineupsConfirmed"`
+	// Knockout stages: how many ties the round holds, which is how the source codes it: 1 for a final, 2 for semi-finals, 4 for quarter-finals, 8 for the last 16, 16 for the last 32. Null in league play and wherever the source leaves the round uncoded. Available since 2026-11-27.
+	TiesInRound *int64 `json:"tiesInRound"`
+	// true when the source holds expected-goals figures for this match, which then appear in /v2/fixtures/{id}/statistics and on the shot map; null when it gives no answer either way. Available since 2026-11-27.
+	XgAvailable *bool `json:"xgAvailable"`
+	// true when the source keeps a statistics line per player for this match, read through /v2/fixtures/{id}/lineups; null when it gives no answer either way. Available since 2026-11-27.
+	PlayerStatisticsAvailable *bool `json:"playerStatisticsAvailable"`
+	// true when the source keeps a heatmap per player for this match; null when it gives no answer either way. Available since 2026-11-27.
+	PlayerHeatmapAvailable *bool `json:"playerHeatmapAvailable"`
+	// Same as on Fixture: during a live cricket innings, the current batter by our player id.
+	CurrentBatterID *int64 `json:"currentBatterId"`
+	// Same as on Fixture: during a live cricket innings, the current bowler by our player id.
+	CurrentBowlerID *int64 `json:"currentBowlerId"`
 	// The player’s own involvement in this fixture, or null when our data source has nothing listed.
 	PlayerMatch *PlayerMatch `json:"playerMatch"`
 }
@@ -2873,6 +2933,10 @@ type RankingRow struct {
 	MaxPoints *float64 `json:"maxPoints"`
 	// Date on which the career-high rank in `bestPosition` was first reached; null when our data source does not give it. Available since 2026-11-20.
 	BestPositionAt *string `json:"bestPositionAt"`
+	// The label the source shows on this row: the team or player name, or a country's name in rankings of national associations such as UEFA's, where `team` stays null. Null when the source shows none. Available since 2026-11-27.
+	RowName *string `json:"rowName"`
+	// The family of table the source puts this ranking in, in its own word: "team" for official team and player rankings, "livetennis" for the live tennis race, "utr" for the Universal Tennis Rating, and others. Null when the source does not classify it. Available since 2026-11-27.
+	RankingClass *string `json:"rankingClass"`
 }
 
 // A bucket of leagues inside a sport, forming the top tier of the league directory.
@@ -3073,6 +3137,8 @@ type RaceSessionPart struct {
 	Status *StatusType `json:"status"`
 	// Planned start time in UTC; null if our data source gives none.
 	StartTime *string `json:"startTime"`
+	// Which elimination stage of a knock-out session this part is, numbered by the source: 1, 2 and 3 for Q1–Q3 in Formula 1 qualifying and SQ1–SQ3 in sprint qualifying. Null for parts without a number, such as practice. Available since 2026-11-27.
+	Round *int64 `json:"round"`
 }
 
 // A single competitor’s entry in the classification of a session or race.
@@ -4133,6 +4199,8 @@ type TeamRanking struct {
 	PointsIfNextWin *float64 `json:"pointsIfNextWin"`
 	// Live tennis rankings: the highest total the player can still reach at the tournament in progress; null for other rankings. Available since 2026-11-25.
 	MaxPoints *float64 `json:"maxPoints"`
+	// The family of table this ranking belongs to, in the source's word, as in RankingRow.rankingClass ("team", "livetennis", "utr", …); null when the source does not classify it. Available since 2026-11-27.
+	RankingClass *string `json:"rankingClass"`
 }
 
 // Our data source’s player of the season for a completed league season — the highest average rating among players who met the playing-time threshold.
@@ -5163,11 +5231,11 @@ type LiveWireTeam struct {
 	Name string `json:"name"`
 }
 
-// Which tracking data a fixture holds. In football: a ball track and events recorded live (goals, shots, cards, set pieces, the flow of play), completed after the final whistle by the full event list including passes and positions; since 2026-11-23 also a timeline recorded live and, for Bundesliga, 2. Bundesliga and MLS matches, player tracking. In tennis: every serve and every point and the positions of ball and players, all live, and since 2026-11-23 a live match timeline. In basketball: a live timeline with shot spots, events read after the match, and player tracking in NBA games. In ice hockey: a live timeline showing where the shots came from. In darts (since 2026-11-13): a live timeline of every dart and every visit. In table tennis (since 2026-11-24): a live timeline with every point and each game won. In American football (since 2026-11-24): a live timeline of every play with the ball’s spot, down and distance. History starts on 2026-11-07 for every sport.
+// Which tracking data a fixture holds. In football: a ball track and events recorded live (goals, shots, cards, set pieces, the flow of play), completed after the final whistle by the full event list including passes and positions, and since 2026-11-23 a timeline recorded live. In tennis: a live ball track and tracked events covering every serve and every point, and since 2026-11-23 a live match timeline. In basketball: a live timeline with shot spots and events read after the match. In ice hockey: a live timeline showing where the shots came from. In darts (since 2026-11-13): a live timeline of every dart and every visit. In table tennis (since 2026-11-24): a live timeline with every point and each game won. In American football (since 2026-11-24): a live timeline of every play with the ball’s spot, down and distance. In baseball (since 2026-11-27): a live timeline of every pitch and play, without positions. History starts on 2026-11-07 for every sport.
 type TrackingSummary struct {
 	// Fixture id issued by DataSportsAPI.
 	FixtureID int64 `json:"fixtureId"`
-	// One of the seven sports with tracking data, as a slug (football, tennis, basketball, ice-hockey, darts, table-tennis, american-football); darts since 2026-11-13, table tennis and American football since 2026-11-24.
+	// One of the eight sports with tracking data, as a slug (football, tennis, basketball, ice-hockey, darts, table-tennis, american-football, baseball); darts since 2026-11-13, table tennis and American football since 2026-11-24, baseball since 2026-11-27 (a timeline only).
 	Sport TrackingSummarySport `json:"sport"`
 	// The coordinate frame for this fixture, which depends on the sport; every x / y / z the tracking endpoints return is expressed in it.
 	Coordinates TrackingCoordinates `json:"coordinates"`
@@ -5181,13 +5249,11 @@ type TrackingSummary struct {
 	BallFrames int64 `json:"ballFrames"`
 	// Count of events served by GET /v2/fixtures/{id}/tracking/events so far.
 	Events int64 `json:"events"`
-	// Number of events on the timeline (see GET /v2/fixtures/{id}/tracking/timeline). Darts, basketball and ice hockey have them, as do football and tennis since 2026-11-23 and table tennis and American football since 2026-11-24, when the match was recorded live.
+	// Number of events on the timeline (see GET /v2/fixtures/{id}/tracking/timeline). Darts, basketball and ice hockey have them, as do football and tennis since 2026-11-23 table tennis and American football since 2026-11-24 and baseball since 2026-11-27, when the match was recorded live.
 	TimelineEvents int64 `json:"timelineEvents"`
-	// True if the match has player tracking: the ball and every player on the court or pitch, five times per second (GET /v2/fixtures/{id}/tracking/players and the playerFrame frame). NBA games have it since 2026-11-13, football in the Bundesliga, 2. Bundesliga and MLS since 2026-11-23; it is false everywhere else.
-	Players bool `json:"players"`
 }
 
-// One of the seven sports with tracking data, as a slug (football, tennis, basketball, ice-hockey, darts, table-tennis, american-football); darts since 2026-11-13, table tennis and American football since 2026-11-24.
+// One of the eight sports with tracking data, as a slug (football, tennis, basketball, ice-hockey, darts, table-tennis, american-football, baseball); darts since 2026-11-13, table tennis and American football since 2026-11-24, baseball since 2026-11-27 (a timeline only).
 type TrackingSummarySport string
 
 const (
@@ -5198,6 +5264,7 @@ const (
 	TrackingSummarySportDarts            TrackingSummarySport = "darts"
 	TrackingSummarySportTableTennis      TrackingSummarySport = "table-tennis"
 	TrackingSummarySportAmericanFootball TrackingSummarySport = "american-football"
+	TrackingSummarySportBaseball         TrackingSummarySport = "baseball"
 )
 
 // A spot expressed in the coordinate frame of the fixture (see TrackingSummary.coordinates).
@@ -5284,11 +5351,11 @@ type TennisGameScore struct {
 	Away string `json:"away"`
 }
 
-// One entry of a match timeline in basketball, ice hockey or darts, since 2026-11-23 football and tennis, and since 2026-11-24 table tennis and American football: shots with where they were taken, saves, penalties, goals, set pieces and periods, and in darts each dart and each visit. Live since 2026-11-13, roughly 5 seconds after the moment (football and tennis about 1–2 seconds; also pushed as timelineEvent frames on tracking:{id}); the source can still revise or withdraw an event afterwards. Events the source withdrew are not included. Football and tennis timelines exist only for matches captured live.
+// One entry of a match timeline in basketball, ice hockey or darts, since 2026-11-23 football and tennis, since 2026-11-24 table tennis and American football, and since 2026-11-27 baseball: shots with where they were taken, saves, penalties, goals, set pieces and periods, and in darts each dart and each visit. Live since 2026-11-13, roughly 5 seconds after the moment (football and tennis about 1–2 seconds; also pushed as timelineEvent frames on tracking:{id}); the source can still revise or withdraw an event afterwards. Events the source withdrew are not included. Football and tennis timelines exist only for matches captured live.
 type TimelineEvent struct {
 	// Key that identifies the event within the fixture and never changes.
 	Key string `json:"key"`
-	// Event type as the source names it, in camelCase. Football (since 2026-11-23): goal, shotOnTarget, shotOffTarget, shotBlocked, goalkeeperSaved, corner, freeKick, freeKickTaken, throwIn, goalKick, offside, card (name says which: Yellow card, Red card …), substitution, videoAssistantReferee, possibleEvent, penaltyRewarded, injury, backFromInjury, temporaryInterruption, gameOn, injuryTimeShown, periodStart, periodBreak, periodScore and more. Tennis (since 2026-11-23): serviceTaken, firstServeFault, scoreChangeTennis, ballInPlay, matchAboutToStart, matchEnded, periodStart, periodScore and more. Basketball: goal (a made basket; points gives its value), attemptMissed, freeThrowsAwarded, rebound, block, stealBasket, turnoverBasket, foul, wonJumpBall, timeout, tvTimeoutStart / tvTimeoutStop, videoReview, periodStart, periodScore, matchStarted, matchEnded and more. Ice hockey: goal, canceledEvent (a goal that was taken back), shotOnTarget, goalkeeperSaved, shotOffTarget, shotBlocked, faceoff, giveaway, takeaway, hit, suspension (a penalty; penaltyMinutes gives its length), suspensionOver, delayedPenalty, emptyNet, emptyNetOver, playResumesAfterGoal, timeout, periodStart, periodBreak (an intermission, or the wait before overtime; period is null), periodScore, penalty (a shoot-out attempt, with homeScore / awayScore giving the shoot-out score once it is taken), penaltyRewarded / penaltyMissed (penalty shots) and more. Darts (since 2026-11-13; the detail is in darts): dartThrow (a single dart), visit (a turn at the board, at most three darts), checkout (the visit that closed out the leg), legWon (homeScore / awayScore count legs), setWon, matchWon, throwsFirst, periodStart, matchStarted, matchEnded. Table tennis (since 2026-11-24; the detail is in tableTennis): point (side won it; homeScore / awayScore count games), gameWon, firstServer, let, timeout, timeoutOver, ballInPlay, periodStart, periodBreak, periodScore (the closing summary, in games), playersWarmingUp, playersOnPitch, matchAboutToStart, matchStarted, matchEnded, card. American football (since 2026-11-24; the detail is in americanFootball): pass, rush, sack, kickoff, punt, fieldGoal, extraPoint, twoPointConversion, touchdown (points 6), safety, goal (the score once a scoring play is counted, in homeScore / awayScore), interception, turnoverOnDowns, fumble, penalty, playStart, playOver, driveStart, driveOver, firstDown, kickoffWait / kickoffWaitOver (side is the kicking team), kickoffTeam, coinToss, timeout, timeoutOver, tvTimeoutStart / tvTimeoutStop, videoReview (name “Video review” or “Video review over”), challenge, periodStart, periodScore, matchStarted, matchEnded. Other types may be added.
+	// Event type as the source names it, in camelCase. Football (since 2026-11-23): goal, shotOnTarget, shotOffTarget, shotBlocked, goalkeeperSaved, corner, freeKick, freeKickTaken, throwIn, goalKick, offside, card (name says which: Yellow card, Red card …), substitution, videoAssistantReferee, possibleEvent, penaltyRewarded, injury, backFromInjury, temporaryInterruption, gameOn, injuryTimeShown, periodStart, periodBreak, periodScore and more. Tennis (since 2026-11-23): serviceTaken, firstServeFault, scoreChangeTennis, ballInPlay, matchAboutToStart, matchEnded, periodStart, periodScore and more. Basketball: goal (a made basket; points gives its value), attemptMissed, freeThrowsAwarded, rebound, block, stealBasket, turnoverBasket, foul, wonJumpBall, timeout, tvTimeoutStart / tvTimeoutStop, videoReview, periodStart, periodScore, matchStarted, matchEnded and more. Ice hockey: goal, canceledEvent (a goal that was taken back), shotOnTarget, goalkeeperSaved, shotOffTarget, shotBlocked, faceoff, giveaway, takeaway, hit, suspension (a penalty; penaltyMinutes gives its length), suspensionOver, delayedPenalty, emptyNet, emptyNetOver, playResumesAfterGoal, timeout, periodStart, periodBreak (an intermission, or the wait before overtime; period is null), periodScore, penalty (a shoot-out attempt, with homeScore / awayScore giving the shoot-out score once it is taken), penaltyRewarded / penaltyMissed (penalty shots) and more. Darts (since 2026-11-13; the detail is in darts): dartThrow (a single dart), visit (a turn at the board, at most three darts), checkout (the visit that closed out the leg), legWon (homeScore / awayScore count legs), setWon, matchWon, throwsFirst, periodStart, matchStarted, matchEnded. Table tennis (since 2026-11-24; the detail is in tableTennis): point (side won it; homeScore / awayScore count games), gameWon, firstServer, let, timeout, timeoutOver, ballInPlay, periodStart, periodBreak, periodScore (the closing summary, in games), playersWarmingUp, playersOnPitch, matchAboutToStart, matchStarted, matchEnded, card. American football (since 2026-11-24; the detail is in americanFootball): pass, rush, sack, kickoff, punt, fieldGoal, extraPoint, twoPointConversion, touchdown (points 6), safety, goal (the score once a scoring play is counted, in homeScore / awayScore), interception, turnoverOnDowns, fumble, penalty, playStart, playOver, driveStart, driveOver, firstDown, kickoffWait / kickoffWaitOver (side is the kicking team), kickoffTeam, coinToss, timeout, timeoutOver, tvTimeoutStart / tvTimeoutStop, videoReview (name “Video review” or “Video review over”), challenge, periodStart, periodScore, matchStarted, matchEnded. Baseball (since 2026-11-27; the detail is in baseball): playStart and playOver (the beginning and end of a plate appearance), ball, strike, foulBall, ballInPlay, batterAdvance, runnerAdvance, batterOut, runnerOut, runScored, goal (the score once a run counts, in homeScore / awayScore), runnerChecked, runnersInMotion, halfInningStart, firstPitch (side is the team that pitches first), periodStart (period holds the inning), periodScore, matchAboutToStart, matchStarted, matchEnded. Other types may be added.
 	Type string `json:"type"`
 	// The source’s English label for the event (“Goalie save”, “1st period”, “2 pt scored”).
 	Name *string `json:"name"`
@@ -5302,7 +5369,7 @@ type TimelineEvent struct {
 	Second *int64 `json:"second"`
 	// For periodStart / periodScore: the number of the period.
 	Period *int64 `json:"period"`
-	// Where the shot or event happened, 0–100, in a frame where home plays towards x = 100 and away towards x = 0 for the whole match (TrackingCoordinates court, rink or pitch). In ice hockey and basketball no attack direction comes from the source, so for each side and period, when that side’s shots sit in the wrong half (x < 50 for home, x > 50 for away), all its positions in that period are mirrored (x → 100 − x, y → 100 − y); when a side has no shots in a period, it borrows the direction from the other side and from the adjacent periods. Football (since 2026-11-23) needs no mirroring: its spots arrive on the pitch grid already, shared with the ball track and the tracked events (touchline restarts at y 0 or 100, corner kicks at x 0 or 100). Null if no spot is given.
+	// Where the shot or event happened, 0–100, in a frame where home plays towards x = 100 and away towards x = 0 for the whole match (TrackingCoordinates court, rink or pitch). In ice hockey and basketball no attack direction comes from the source, so for each side and period, when that side’s shots sit in the wrong half (x < 50 for home, x > 50 for away), all its positions in that period are mirrored (x → 100 − x, y → 100 − y); when a side has no shots in a period, it borrows the direction from the other side and from the adjacent periods. In football (since 2026-11-23) and basketball (since 2026-11-27) the source counts y from the opposite side to the one its tracked events use, so we serve 100 − y: a spot then carries the same y here as in /tracking/events (and, for football, the ball track). Football spots are never mirrored; a touchline restart sits at y 0 or 100 and a corner kick at x 0 or 100. Null if no spot is given.
 	Position *TrackingSpot `json:"position"`
 	// Name of the player involved (the scorer of a goal), with the first name first, if the source gives a name.
 	Player *string `json:"player"`
@@ -5322,6 +5389,8 @@ type TimelineEvent struct {
 	TableTennis *TimelineTableTennis `json:"tableTennis"`
 	// American football (since 2026-11-24): where the ball is, the down and the yards to go, plus, for a play, how it ended, the yards gained and who took part. Null for every other sport and for events without any of this.
 	AmericanFootball *TimelineAmericanFootball `json:"americanFootball"`
+	// Baseball (since 2026-11-27): the count, the outs and the occupied bases after the event, plus a runner’s move and the runs it brought in where that applies. Null for every other sport and for baseball events that carry none of it.
+	Baseball *TimelineBaseball `json:"baseball"`
 }
 
 // Darts detail on a timeline entry (since 2026-11-13): either one dart (dartThrow) or one visit together with what it settled (visit, checkout, setWon, matchWon); any field that does not apply is null. Some competitions only report visits, without the individual darts.
@@ -5406,6 +5475,38 @@ type TimelineAmericanFootball struct {
 	Players []AmericanFootballPlayer `json:"players"`
 }
 
+// Baseball detail on a timeline entry (since 2026-11-27). The timeline follows the game pitch by pitch and holds no coordinates; each entry says how the count, the outs and the bases stand once it has happened. Anything the event does not concern is left null.
+type TimelineBaseball struct {
+	// Balls in the current batter’s count after the pitch or play.
+	Balls *int64 `json:"balls"`
+	// Strikes in the current batter’s count after it.
+	Strikes *int64 `json:"strikes"`
+	// Outs recorded in this half inning after it.
+	Outs *int64 `json:"outs"`
+	// Which bases hold a runner once a base changes or a play ends.
+	Bases *BaseballBases `json:"bases"`
+	// batterAdvance, runnerAdvance, runScored: the base the runner started from, 0 being home plate; runnerOut, runnerChecked: the base concerned.
+	From *int64 `json:"from"`
+	// batterAdvance, runnerAdvance: the base the runner got to.
+	To *int64 `json:"to"`
+	// runScored: how many runs came in.
+	Runs *int64 `json:"runs"`
+	// halfInningStart: the half that begins.
+	Half *BaseballHalf `json:"half"`
+	// How the source labels the pitch, play, out or run, written in camelCase, for example single, double, homeRun, walk, steal, groundOut, flyOut, strikeOut or earnedRun. Labels beyond these can turn up; an event that comes without a label has null here.
+	Kind *string `json:"kind"`
+}
+
+// The three bases and whether a runner stands on each.
+type BaseballBases struct {
+	// True with a runner on first.
+	First bool `json:"first"`
+	// True with a runner on second.
+	Second bool `json:"second"`
+	// True with a runner on third.
+	Third bool `json:"third"`
+}
+
 // Someone who features in an American football play, given by name and role only; there is no id.
 type AmericanFootballPlayer struct {
 	// What the player did in the play.
@@ -5414,7 +5515,7 @@ type AmericanFootballPlayer struct {
 	Name string `json:"name"`
 }
 
-// Snapshot of a tracking:{id} channel: the summary, the most recent ball frames, tracked events and timeline entries, together with the latest player frame; anything older is available over REST.
+// Snapshot of a tracking:{id} channel: the summary and the most recent ball frames, tracked events and timeline entries; anything older is available over REST.
 type TrackingSnapshot struct {
 	// Fixture id issued by DataSportsAPI.
 	FixtureID int64 `json:"fixtureId"`
@@ -5424,70 +5525,14 @@ type TrackingSnapshot struct {
 	Ball []BallFrame `json:"ball"`
 	// The latest tracked events, at most 100, oldest first.
 	Events []TrackedEvent `json:"events"`
-	// Since 2026-11-13: the latest timeline events, at most 100, oldest first, in basketball, ice hockey and darts, since 2026-11-23 in football and tennis, and since 2026-11-24 in table tennis and American football; an empty list when the match has no timeline.
+	// Since 2026-11-13: the latest timeline events, at most 100, oldest first, in basketball, ice hockey and darts, since 2026-11-23 in football and tennis, since 2026-11-24 in table tennis and American football, and since 2026-11-27 in baseball; an empty list when the match has no timeline.
 	Timeline []TimelineEvent `json:"timeline"`
-	// The most recent player frame, for NBA games (since 2026-11-13) and football in the Bundesliga, 2. Bundesliga and MLS (since 2026-11-23); null when the match has no player tracking. Every playerFrame frame replaces it.
-	PlayerFrame *PlayerFrame `json:"playerFrame"`
-}
-
-// A single player-tracking frame (NBA games from 2026-11-13; Bundesliga, 2. Bundesliga and MLS football from 2026-11-23): the ball and all players on the court or pitch, five frames per second. Positions use the sport’s own frame with home attacking towards x = 100 throughout; the teams change ends at half-time, the frame does not. Which way each team plays is worked out per period: in basketball from where its shots go, so a live frame from the opening seconds, before anyone has shot, may come mirrored (frames read again over REST are corrected); in football from its goalkeeper’s position. No frames are kept for half-time (warm-ups are dropped). Recorded live only: a match that was not captured live has no frames.
-type PlayerFrame struct {
-	// Rising frame counter for the match (gaps are expected). It gives the order and is the paging cursor (after) of GET /v2/fixtures/{id}/tracking/players.
-	Frame int64 `json:"frame"`
-	// Time we received the frame, roughly 1–2 s later than the moment it depicts. Frames come in batches of five per second that share this time: show them in `frame` order with 0.2 s between them.
-	At string `json:"at"`
-	// Period number. Basketball: 1–4 are the quarters, 5 is the first overtime, 6 the second, and so on. Football: 1 and 2 are the halves, 3 and 4 the halves of extra time.
-	Period int64 `json:"period"`
-	// Game clock. Basketball: seconds remaining in the period. Football: seconds since kick-off, which keeps rising through stoppage time (2,800 reads 46:40). Unit: seconds.
-	Clock int64 `json:"clock"`
-	// Basketball: shot clock in seconds, null while it is switched off. Always null in football. Unit: seconds.
-	ShotClock *float64 `json:"shotClock"`
-	// True while the game clock is ticking.
-	Running bool `json:"running"`
-	// The side and player in possession; null when neither side has the ball.
-	Possession *PlayerFramePossession `json:"possession"`
-	// Ball position; null when the tracker cannot see it.
-	Ball *PlayerFrameBall `json:"ball"`
-	// Everyone on the court or pitch (ten during play in basketball, 22 in football).
-	Players []PlayerFramePlayer `json:"players"`
-}
-
-// Ball possession within a player frame.
-type PlayerFramePossession struct {
-	// Side in possession.
-	Side Side `json:"side"`
-	// Player holding the ball; null when nobody holds it (a shot in flight, a loose ball) or when the squad has no entry for them.
-	Player *TrackedPlayer `json:"player"`
-}
-
-// Ball position within a player frame.
-type PlayerFrameBall struct {
-	// Lengthwise position, 0–100 (TrackingCoordinates court or pitch; home shoots or attacks towards x = 100).
-	X float64 `json:"x"`
-	// Widthwise position, 0–100.
-	Y float64 `json:"y"`
-	// Metres above the ground (a basketball rim sits at 3.05, a football crossbar at 2.44).
-	Height float64 `json:"height"`
-}
-
-// One player on the court or pitch, as seen in a player frame. There is no id, because tracked players are not linked to DataSportsAPI player ids; within one match, name, shirt number and side tell them apart.
-type PlayerFramePlayer struct {
-	// Which side the player is on; null if the match squad does not include them.
-	Side *Side `json:"side"`
-	// Name as displayed, given name first; null if the match squad does not include them.
-	Name *string `json:"name"`
-	// Number on their shirt in this match.
-	ShirtNumber *int64 `json:"shirtNumber"`
-	// Lengthwise position on the fixture’s 0–100 grid; slightly beyond that range while the player is off the playing area (out of bounds, by the bench).
-	X float64 `json:"x"`
-	// Widthwise position, 0–100, likewise.
-	Y float64 `json:"y"`
 }
 
 // The server sends this frame first, as soon as the connection opens.
 type WsWelcome struct {
 	Type string `json:"type"`
-	// Version of the protocol in use. It has been 5 since 2026-11-19 (the race:{id} snapshot carries the sessions, race frames no longer do, and raceSessions frames deliver changes to them); it was 4 from the evening of 2026-10-23 (since then a fixture that joins a list channel comes in a `fixture` frame); protocol 3 dates from earlier on 2026-10-23 and protocol 2 from 2026-10-19. Channels and frame types are added without changing this number (odds:{id} on 2026-11-04, tracking:{id} on 2026-11-12, the timelineEvent and playerFrame frames on tracking:{id} on 2026-11-13), so skip any frame type you do not recognise.
+	// Version of the protocol in use. It has been 5 since 2026-11-19 (the race:{id} snapshot carries the sessions, race frames no longer do, and raceSessions frames deliver changes to them); it was 4 from the evening of 2026-10-23 (since then a fixture that joins a list channel comes in a `fixture` frame); protocol 3 dates from earlier on 2026-10-23 and protocol 2 from 2026-10-19. Channels and frame types are added without changing this number (odds:{id} on 2026-11-04, tracking:{id} on 2026-11-12, the timelineEvent frame on tracking:{id} on 2026-11-13), so skip any frame type you do not recognise.
 	Protocol int64 `json:"protocol"`
 	// Interval between server pings. Reply to them (browsers do this automatically) or the connection is closed.
 	HeartbeatMs int64 `json:"heartbeatMs"`
@@ -5754,6 +5799,7 @@ const (
 	WsBallSportDarts            WsBallSport = "darts"
 	WsBallSportTableTennis      WsBallSport = "table-tennis"
 	WsBallSportAmericanFootball WsBallSport = "american-football"
+	WsBallSportBaseball         WsBallSport = "baseball"
 )
 
 // On tracking:{fixtureId} (since 2026-11-12): one more tracked event. Tennis sends each serve, point, ball position and player position live. Football sends, live and about 18 a minute, its goals, shots, cards, substitutions, set pieces and the flow-of-play types (possessionChange, flowAttack, flowDangerousAttack, flowBallSafe), then the passes in one burst with the post-match read. Basketball events come mostly in that burst. Keep events keyed by key; receiving a key you already have means the same event again.
@@ -5783,6 +5829,7 @@ const (
 	WsTrackedEventSportDarts            WsTrackedEventSport = "darts"
 	WsTrackedEventSportTableTennis      WsTrackedEventSport = "table-tennis"
 	WsTrackedEventSportAmericanFootball WsTrackedEventSport = "american-football"
+	WsTrackedEventSportBaseball         WsTrackedEventSport = "baseball"
 )
 
 // On tracking:{fixtureId} (since 2026-11-13): one timeline event — basketball, ice hockey and darts, football and tennis since 2026-11-23, table tennis and American football since 2026-11-24 — roughly 5 seconds after the moment in the first three and about a second in the others (about 4 – 8 a minute in basketball, about 25 – 30 in darts). With upsert, add it or overwrite the one under the same key (a revision; earlier positions in a period can shift once its shots show which way the side attacks); with remove, the source has withdrawn it. Start from the snapshot’s timeline and apply every frame by key.
@@ -5816,33 +5863,7 @@ const (
 	WsTimelineEventSportDarts            WsTimelineEventSport = "darts"
 	WsTimelineEventSportTableTennis      WsTimelineEventSport = "table-tennis"
 	WsTimelineEventSportAmericanFootball WsTimelineEventSport = "american-football"
-)
-
-// On tracking:{fixtureId}, NBA games only (since 2026-11-13): one player frame with the ball and every player, five per second, about 1–2 seconds behind play and delivered in batches of five each second. Unlike every other frame it has NO seq and is never replayed: it samples the current state and the newest frame wins. Replace the snapshot’s playerFrame with it, and show the frames of one batch in `frame` order, spacing them 0.2 s. A connection that lags behind receives the newer frames and misses the older ones.
-type WsPlayerFrame struct {
-	Type    string `json:"type"`
-	Channel string `json:"channel"`
-	// Server timestamp in Unix milliseconds.
-	Ts int64 `json:"ts"`
-	// Fixture id assigned by DataSportsAPI.
-	ID int64 `json:"id"`
-	// Slug of the fixture’s sport (basketball).
-	Sport WsPlayerFrameSport `json:"sport"`
-	// One player-tracking frame (NBA basketball only, from 2026-11-13 on): the ball and every player on the court, five frames a second. The court frame keeps the home side shooting towards x = 100 for the whole game, even though the teams change baskets at half-time. We work out each team’s direction period by period from the spots its shots are taken from, so a live frame from the opening seconds, before the first shot, can arrive mirrored (a later REST read is corrected). No frames during half-time, and none for a game that was not recorded live.
-	Frame PlayerFrame `json:"frame"`
-}
-
-// Slug of the fixture’s sport (basketball).
-type WsPlayerFrameSport string
-
-const (
-	WsPlayerFrameSportFootball         WsPlayerFrameSport = "football"
-	WsPlayerFrameSportTennis           WsPlayerFrameSport = "tennis"
-	WsPlayerFrameSportBasketball       WsPlayerFrameSport = "basketball"
-	WsPlayerFrameSportIceHockey        WsPlayerFrameSport = "ice-hockey"
-	WsPlayerFrameSportDarts            WsPlayerFrameSport = "darts"
-	WsPlayerFrameSportTableTennis      WsPlayerFrameSport = "table-tennis"
-	WsPlayerFrameSportAmericanFootball WsPlayerFrameSport = "american-football"
+	WsTimelineEventSportBaseball         WsTimelineEventSport = "baseball"
 )
 
 // On tracking:{fixtureId} (since 2026-11-12): sent when the match ends (final) and again when its post-match data has been read (complete).
@@ -5874,6 +5895,7 @@ const (
 	WsTrackingStatusSportDarts            WsTrackingStatusSport = "darts"
 	WsTrackingStatusSportTableTennis      WsTrackingStatusSport = "table-tennis"
 	WsTrackingStatusSportAmericanFootball WsTrackingStatusSport = "american-football"
+	WsTrackingStatusSportBaseball         WsTrackingStatusSport = "baseball"
 )
 
 // Acknowledges that you have left a channel.
@@ -6743,6 +6765,8 @@ const (
 	ShotSituationPenalty ShotSituation = "penalty"
 	// A kick in a penalty shoot-out; `shootoutSequence` gives the overall kick order and `shootoutRound` the round for the taker’s side.
 	ShotSituationShootout ShotSituation = "shootout"
+	// A shot the source records as an own goal on the shot map. Available since 2026-11-27; earlier such shots read `other`.
+	ShotSituationOwnGoal ShotSituation = "ownGoal"
 	// A situation we have not classified yet.
 	ShotSituationOther ShotSituation = "other"
 )
@@ -8291,11 +8315,11 @@ const (
 	TrackingCoordinatesPitch TrackingCoordinates = "pitch"
 	// Tennis: millimetres from the middle of the net. x follows the length of the court (around ±11,900 at each baseline), y its width (around ±4,100 at the doubles sidelines), and z gives how high the ball is above the court surface.
 	TrackingCoordinatesTennisCourt TrackingCoordinates = "tennisCourt"
-	// Basketball: 0–100 along the court (x) and across it (y). Home shoots at the x = 100 basket and away at the x = 0 one for the whole game; where the source swaps baskets at half-time, timeline positions are converted into this frame.
+	// Basketball: 0–100 along the court (x) and across it (y). Home shoots at the x = 100 basket and away at the x = 0 one for the whole game; where the source swaps baskets at half-time, timeline positions are converted into this frame. Since 2026-11-27 timeline y is given as 100 minus the source's figure, because the source measures it from the other sideline than its tracked events; tracked events, timeline entries and the ball therefore agree on y.
 	TrackingCoordinatesCourt TrackingCoordinates = "court"
 	// Ice hockey: 0–100 along the rink (x) and across it (y). Home attacks the x = 100 goal and away the x = 0 goal in every period. Which end each team really defended changes by period and the source does not report it, so since 2026-11-12 each side’s positions are mirrored per period according to where its shots went.
 	TrackingCoordinatesRink TrackingCoordinates = "rink"
-	// American football (since 2026-11-24): a single axis in yards along the field, 0 at the home goal line and 100 at the away one, for the whole game, so 50 is midfield. Timeline positions stay null; a play’s spot is in TimelineEvent.americanFootball.spot.
+	// American football (since 2026-11-24): yards along the field, 0 at the home goal line and 100 at the away one, for the whole game, so 50 is midfield; the end zones run from −10 to 0 and from 100 to 110. Player frames (since 2026-11-26) add y, 0–100 across the field. Timeline positions stay null; a play’s spot is in TimelineEvent.americanFootball.spot.
 	TrackingCoordinatesField TrackingCoordinates = "field"
 	// Darts (since 2026-11-13): there are no positions at all, so every position is null. Each throw tells you which bed it hit instead (TimelineEvent.darts).
 	TrackingCoordinatesNone TrackingCoordinates = "none"
@@ -8441,6 +8465,16 @@ const (
 	TimelineOpRemove TimelineOp = "remove"
 )
 
+// Top or bottom of an inning.
+type BaseballHalf string
+
+const (
+	// The first half of the inning, with the away side at bat.
+	BaseballHalfTop BaseballHalf = "top"
+	// The second half, with the home side at bat.
+	BaseballHalfBottom BaseballHalf = "bottom"
+)
+
 // Codes that a WebSocket `error` frame can carry.
 type WsErrorCode string
 
@@ -8459,6 +8493,8 @@ const (
 	WsErrorCodeUnknownRace WsErrorCode = "unknown_race"
 	// team:{id} refers to a team id DataSportsAPI never issued (take ids from a fixture’s home / away or from /v2/teams). The REST API returns 404 not_found for the same id. Available since 2026-11-04.
 	WsErrorCodeUnknownTeam WsErrorCode = "unknown_team"
+	// You subscribed to fixture:{id}, odds:{id}, tracking:{id} or race:{id} for a match that kicked off, or a race that began, before the first day of your plan's history; `message` names that day. A REST call for that id gets 403 history_not_in_plan too. A refused channel is left out of maxChannels. Available since 2026-11-27.
+	WsErrorCodeHistoryNotInPlan WsErrorCode = "history_not_in_plan"
 	// A resync / unsubscribe targeted a channel this connection has not joined.
 	WsErrorCodeNotSubscribed WsErrorCode = "not_subscribed"
 	// This connection has reached its maxChannels limit.
@@ -9095,7 +9131,7 @@ type TeamsDepthChartResponse struct {
 	Meta *TeamsDepthChartMeta `json:"meta,omitempty"`
 }
 
-// arrivalCount, departureCount
+// arrivalCount, departureCount; historyFrom when your plan's window left older moves out
 type TeamsTransfersMeta struct {
 	ArrivalCount   *int64 `json:"arrivalCount,omitempty"`
 	DepartureCount *int64 `json:"departureCount,omitempty"`
@@ -9401,7 +9437,7 @@ type PlayersGetResponse struct {
 	Data Player `json:"data"`
 }
 
-// count
+// count; historyFrom when your plan's window left older moves out
 type PlayersTransfersMeta struct {
 	Count *int64 `json:"count,omitempty"`
 }
@@ -9414,7 +9450,7 @@ type PlayersTransfersResponse struct {
 	Meta *PlayersTransfersMeta `json:"meta,omitempty"`
 }
 
-// sort, league, position, nationality, minAge, maxAge, page, count, hasNextPage
+// sort, league, position, nationality, minAge, maxAge, page, count, hasNextPage; historyFrom when your plan's window left older moves out
 type TransfersListMeta struct {
 	Sort        *string `json:"sort,omitempty"`
 	League      *int64  `json:"league,omitempty"`
@@ -9840,7 +9876,7 @@ type LeaguesDraftResponse struct {
 	Meta *LeaguesDraftMeta `json:"meta,omitempty"`
 }
 
-// league, page, count, hasNextPage
+// league, page, count, hasNextPage; historyFrom when your plan's window left older moves out
 type LeaguesTransfersMeta struct {
 	League      *int64 `json:"league,omitempty"`
 	Page        *int64 `json:"page,omitempty"`
@@ -10411,7 +10447,7 @@ type AgenciesPlayersResponse struct {
 	Meta *AgenciesPlayersMeta `json:"meta,omitempty"`
 }
 
-// count
+// count; historyFrom when your plan's window left older moves out
 type AgenciesTransfersMeta struct {
 	Count *int64 `json:"count,omitempty"`
 }
@@ -10633,21 +10669,6 @@ type TrackingTimelineResponse struct {
 	Meta *TrackingTimelineMeta `json:"meta,omitempty"`
 }
 
-// count, hasNextPage, next (the after value for the following page, or null)
-type TrackingPlayersMeta struct {
-	Count       *int64 `json:"count,omitempty"`
-	HasNextPage *bool  `json:"hasNextPage,omitempty"`
-	Next        *int64 `json:"next,omitempty"`
-}
-
-// TrackingPlayersResponse is the envelope GET /v2/fixtures/{id}/tracking/players answers with.
-type TrackingPlayersResponse struct {
-	// Data is the answer itself.
-	Data []PlayerFrame `json:"data"`
-	// Meta describes the answer (paging, the filters applied); nil when the API sends none.
-	Meta *TrackingPlayersMeta `json:"meta,omitempty"`
-}
-
 // ExportsCreateResponse is the envelope POST /v2/exports answers with.
 type ExportsCreateResponse struct {
 	// Data is the answer itself.
@@ -10698,7 +10719,6 @@ var wsFrameTypes = map[string]func() any{
 	"odds":           func() any { return new(WsOdds) },
 	"ping":           func() any { return new(WsPing) },
 	"playByPlay":     func() any { return new(WsPlayByPlay) },
-	"playerFrame":    func() any { return new(WsPlayerFrame) },
 	"pong":           func() any { return new(WsPong) },
 	"race":           func() any { return new(WsRace) },
 	"raceResults":    func() any { return new(WsRaceResults) },

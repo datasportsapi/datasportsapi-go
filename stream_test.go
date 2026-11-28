@@ -337,10 +337,10 @@ func TestStreamSubscribeSnapshotDeltas(t *testing.T) {
 	if got := ids(t, s, "livescores"); got != "9" {
 		t.Errorf("after resync: %q", got)
 	}
-	// playerFrame has no seq and never triggers a resync; other channels keep no state.
-	sc.send(map[string]any{"type": "playerFrame", "channel": "livescores", "ts": 8, "id": 9, "sport": "basketball", "frame": map[string]any{}})
-	if f := nextFrame(t, s); f.Seq != nil || f.Type != "playerFrame" {
-		t.Errorf("playerFrame %+v", f)
+	// A frame without seq (here an error) never triggers a resync; other channels keep no state.
+	sc.send(map[string]any{"type": "error", "channel": "livescores", "ts": 8, "code": "channel_forbidden", "message": "x"})
+	if f := nextFrame(t, s); f.Seq != nil || f.Type != "error" {
+		t.Errorf("seqless frame %+v", f)
 	}
 	if _, err := s.Fixtures("odds:1"); !errors.Is(err, ErrNoState) {
 		t.Errorf("odds state: %v", err)

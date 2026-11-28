@@ -78,7 +78,7 @@ func TestHeadersQueryAndDecoding(t *testing.T) {
 	if got.Header.Get("Accept") != "application/json" {
 		t.Errorf("Accept = %q", got.Header.Get("Accept"))
 	}
-	if got.Header.Get("User-Agent") != "datasportsapi-go/"+Version || Version != "0.1.0" {
+	if got.Header.Get("User-Agent") != "datasportsapi-go/"+Version || Version != "0.2.0" {
 		t.Errorf("User-Agent = %q", got.Header.Get("User-Agent"))
 	}
 	if got.Header.Get("Content-Type") != "" {

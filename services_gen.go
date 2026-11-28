@@ -45,7 +45,7 @@ type services struct {
 	Search *SearchService
 	// Odds: Odds are kept apart from match data. Fixtures, lists and stream deltas contain no betting fields, so nothing odds-related reaches your users unless you call the endpoints in this group or subscribe to the odds:{id} channel, the only two places where prices exist. The prices are those of a single bookmaker, before kick-off and in play, and reach us through our data source with no bookmaker named; they have been available since 2026-11-04. The endpoints are part of the Pro, Business and Enterprise plans, the live channel of Business and Enterprise. Before you show them, check the rules on displaying betting odds that apply where your users are, because they differ from place to place. The prices themselves come from a third party and are information only: not an offer to bet, and not betting advice. Adults only (18+); gamble responsibly.
 	Odds *OddsService
-	// Tracking: Enterprise only. These endpoints are the REST side of the tracking data, and the tracking:{id} WebSocket channel sends the same data as live frames. Two rules hold for all of it. Positions follow the coordinate frame named in TrackingSummary.coordinates, and that frame differs by sport. Darts has no coordinates at all; each dart is placed by the bed it landed in. Tennis uses millimetres, with the centre of the net as the origin. Football, basketball and ice hockey use a 0–100 grid on which the home side attacks towards x = 100 for the whole match. And a player is a name taken from the match squad, with no id. What a match holds depends on its sport. Football: a ball track and events during play (the flow of play, meaning attack, dangerous attack, ball safe and change of possession, and within seconds also goals, shots, cards, substitutions and set pieces), followed after the match by the events with positions and passes. Tennis: the positions of the ball and the players as the match is played, with every serve and point. Basketball and ice hockey: a match timeline with the location of each shot, live since 2026-11-13; basketball has post-match events as well. Darts: a live timeline in which each dart and each visit is an entry (since 2026-11-13). In NBA games the ten players and the ball are located as well, live and five times each second (since 2026-11-13). Since 2026-11-24 table tennis and American football have live timelines too: every point in table tennis, which has no coordinates, and every play in American football, placed on a single axis of yards from the home goal line (field). Tracking has been available since 2026-11-12, for matches from 2026-11-07 on.
+	// Tracking: Enterprise only. These endpoints are the REST side of the tracking data, and the tracking:{id} WebSocket channel sends the same data as live frames. Two rules hold for all of it. Positions follow the coordinate frame named in TrackingSummary.coordinates, and that frame differs by sport. Darts has no coordinates at all; each dart is placed by the bed it landed in. Tennis uses millimetres, with the centre of the net as the origin. Football, basketball and ice hockey use a 0–100 grid on which the home side attacks towards x = 100 for the whole match. Baseball has none either: its entries say where the runners stand, not where anyone is. A player named in tracking data is a name from the match squad, without an id. What a match holds depends on its sport. Football: a ball track and events during play (the flow of play, meaning attack, dangerous attack, ball safe and change of possession, and within seconds also goals, shots, cards, substitutions and set pieces), followed after the match by the events with positions and passes. Tennis: the positions of the ball and the players as the match is played, with every serve and point. Basketball and ice hockey: a match timeline with the location of each shot, live since 2026-11-13; basketball has post-match events as well. Darts: a live timeline in which each dart and each visit is an entry (since 2026-11-13). Since 2026-11-24 table tennis and American football have live timelines too: every point in table tennis, which has no coordinates, and every play in American football, placed on a single axis of yards from the home goal line (field). Baseball joined on 2026-11-27 with a pitch-by-pitch timeline. Live positions of the players are not part of the API: only the live match tracker widget draws them. Tracking has been available since 2026-11-12, for matches from 2026-11-07 on.
 	Tracking *TrackingService
 	// Season exports: This group turns one league season into downloadable files. The work happens in the background: the create call returns at once, the status call tells you when the build is done, and the finished export carries a download link for each file. The files hold the same data the season’s own endpoints return. An account may start 20 exports per UTC day, and every export is kept for 7 days. The group belongs to the Business and Enterprise plans and respects the plan’s history window: a season that had already ended when the window begins answers 403 history_not_in_plan. The window is 90 days on Business; Enterprise has no limit.
 	Exports *ExportsService
@@ -2647,7 +2647,7 @@ func (s *OddsService) List(ctx context.Context, params *OddsListParams) (*OddsLi
 	return out, nil
 }
 
-// TrackingService groups the Tracking endpoints. Enterprise only. These endpoints are the REST side of the tracking data, and the tracking:{id} WebSocket channel sends the same data as live frames. Two rules hold for all of it. Positions follow the coordinate frame named in TrackingSummary.coordinates, and that frame differs by sport. Darts has no coordinates at all; each dart is placed by the bed it landed in. Tennis uses millimetres, with the centre of the net as the origin. Football, basketball and ice hockey use a 0–100 grid on which the home side attacks towards x = 100 for the whole match. And a player is a name taken from the match squad, with no id. What a match holds depends on its sport. Football: a ball track and events during play (the flow of play, meaning attack, dangerous attack, ball safe and change of possession, and within seconds also goals, shots, cards, substitutions and set pieces), followed after the match by the events with positions and passes. Tennis: the positions of the ball and the players as the match is played, with every serve and point. Basketball and ice hockey: a match timeline with the location of each shot, live since 2026-11-13; basketball has post-match events as well. Darts: a live timeline in which each dart and each visit is an entry (since 2026-11-13). In NBA games the ten players and the ball are located as well, live and five times each second (since 2026-11-13). Since 2026-11-24 table tennis and American football have live timelines too: every point in table tennis, which has no coordinates, and every play in American football, placed on a single axis of yards from the home goal line (field). Tracking has been available since 2026-11-12, for matches from 2026-11-07 on.
+// TrackingService groups the Tracking endpoints. Enterprise only. These endpoints are the REST side of the tracking data, and the tracking:{id} WebSocket channel sends the same data as live frames. Two rules hold for all of it. Positions follow the coordinate frame named in TrackingSummary.coordinates, and that frame differs by sport. Darts has no coordinates at all; each dart is placed by the bed it landed in. Tennis uses millimetres, with the centre of the net as the origin. Football, basketball and ice hockey use a 0–100 grid on which the home side attacks towards x = 100 for the whole match. Baseball has none either: its entries say where the runners stand, not where anyone is. A player named in tracking data is a name from the match squad, without an id. What a match holds depends on its sport. Football: a ball track and events during play (the flow of play, meaning attack, dangerous attack, ball safe and change of possession, and within seconds also goals, shots, cards, substitutions and set pieces), followed after the match by the events with positions and passes. Tennis: the positions of the ball and the players as the match is played, with every serve and point. Basketball and ice hockey: a match timeline with the location of each shot, live since 2026-11-13; basketball has post-match events as well. Darts: a live timeline in which each dart and each visit is an entry (since 2026-11-13). Since 2026-11-24 table tennis and American football have live timelines too: every point in table tennis, which has no coordinates, and every play in American football, placed on a single axis of yards from the home goal line (field). Baseball joined on 2026-11-27 with a pitch-by-pitch timeline. Live positions of the players are not part of the API: only the live match tracker widget draws them. Tracking has been available since 2026-11-12, for matches from 2026-11-07 on.
 type TrackingService struct{ c *Client }
 
 // Get calls GET /v2/fixtures/{id}/tracking: Tracking summary.
@@ -2728,19 +2728,6 @@ func (s *TrackingService) EventsPages(ctx context.Context, id int64, params *Tra
 func (s *TrackingService) Timeline(ctx context.Context, id int64) (*TrackingTimelineResponse, error) {
 	out := new(TrackingTimelineResponse)
 	if err := s.c.do(ctx, "GET", "/v2/fixtures/"+strconv.FormatInt(id, 10)+"/tracking/timeline", nil, nil, out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// Players calls GET /v2/fixtures/{id}/tracking/players: Player tracking.
-//
-// Plans: enterprise.
-//
-// Docs: https://datasportsapi.com/docs/tracking/players/
-func (s *TrackingService) Players(ctx context.Context, id int64, params *TrackingPlayersParams) (*TrackingPlayersResponse, error) {
-	out := new(TrackingPlayersResponse)
-	if err := s.c.do(ctx, "GET", "/v2/fixtures/"+strconv.FormatInt(id, 10)+"/tracking/players", params.query(), nil, out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -3253,7 +3240,7 @@ func (p *PlayersFixturesParams) query() url.Values {
 type PlayersStatisticsParams struct {
 	// league id, as listed by /v2/players/{id}/seasons. Required.
 	League int64
-	// season id, as listed by /v2/leagues/{id}/seasons. Required.
+	// season id, as listed by /v2/leagues/{id}/seasons; or the league's allTimeSeasonId from /v2/players/{id}/seasons for career totals in that league (since 2026-11-27; refused with 403 history_not_in_plan on plans with a history window). Required.
 	Season int64
 	// a type the season offers according to /seasons (overall | home | away | regularSeason | playoffs | mainDraw (a tennis tournament’s main draw)); when omitted, the season’s native type applies — overall, otherwise regularSeason. One of: overall, home, away, regularSeason, playoffs.
 	Type *string
@@ -4366,38 +4353,6 @@ func (p *TrackingEventsParams) query() url.Values {
 	}
 	if p.Page != nil {
 		q.Set("page", strconv.FormatInt(*p.Page, 10))
-	}
-	return q
-}
-
-// TrackingPlayersParams holds the query parameters of Players (GET /v2/fixtures/{id}/tracking/players). Required fields are values; optional ones are pointers (set them with Ptr) and are left out when nil.
-type TrackingPlayersParams struct {
-	// frames that come after this frame counter (PlayerFrame.frame; that counter excluded) — meta.next from the previous page.
-	After *int64
-	// frames received after this instant (ISO-8601 with any offset; that instant excluded); ignored when after is sent.
-	Since *string
-	// frames per page, 1–3000 (150 if omitted, which is 30 seconds). Default: 150.
-	Limit *int64
-	// 5 for every frame (the default) or 1 for one frame per second. One of: 1, 5. Default: 5.
-	Fps *int64
-}
-
-func (p *TrackingPlayersParams) query() url.Values {
-	q := url.Values{}
-	if p == nil {
-		return q
-	}
-	if p.After != nil {
-		q.Set("after", strconv.FormatInt(*p.After, 10))
-	}
-	if p.Since != nil {
-		q.Set("since", *p.Since)
-	}
-	if p.Limit != nil {
-		q.Set("limit", strconv.FormatInt(*p.Limit, 10))
-	}
-	if p.Fps != nil {
-		q.Set("fps", strconv.FormatInt(*p.Fps, 10))
 	}
 	return q
 }

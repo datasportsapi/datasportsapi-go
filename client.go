@@ -31,7 +31,7 @@ import (
 )
 
 // Version is the version of this module.
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 const (
 	// DefaultBaseURL is where the client sends requests unless told otherwise.

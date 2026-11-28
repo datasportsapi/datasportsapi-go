@@ -180,6 +180,6 @@ DATASPORTSAPI_API_KEY=sk_live_… go test -tags live -run Live -v ./...
 
 - Go SDK guide: https://datasportsapi.com/sdks/go/
 - API docs: https://datasportsapi.com/docs/
-- Questions: [hello@datasportsapi.com](mailto:hello@datasportsapi.com)
+- Questions: [hello@datasportsapi.com](mailto:hello@datasportsapi.com) or the [developer Discord](https://datasportsapi.com/discord) (#go)
 
 © DataSportsAPI. MIT licensed.
